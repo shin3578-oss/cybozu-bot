@@ -112,21 +112,29 @@ def process_workflow_items(page):
         if href:
             print(f"  [{text}] -> {href}")
 
-    # 日報・週報のみ収集
+    # ワークフローアイテムを種類別に収集
     items = page.query_selector_all('a[href*="WorkFlowHandle"]')
-    approval_links = []
+    report_links = []    # 日報・週報（AIコメントあり）
+    facility_links = []  # 設備使用許可申請（コメントなし即承認）
 
     for item in items:
         href = item.get_attribute("href")
         text = item.inner_text().strip()
-        if href and text and ("日報" in text or "週報" in text):
-            print(f"対象: {text}")
-            approval_links.append(href)
+        if not href or not text:
+            continue
+        if "日報" in text or "週報" in text:
+            print(f"日報・週報: {text}")
+            report_links.append(href)
+        elif "設備使用許可" in text or "練習台帳" in text:
+            print(f"設備使用許可申請: {text}")
+            facility_links.append(href)
 
-    print(f"承認待ち件数: {len(approval_links)}")
+    print(f"日報・週報: {len(report_links)}件 / 設備使用許可申請: {len(facility_links)}件")
 
     processed = 0
-    for link in approval_links:
+
+    # 日報・週報：AIコメントをつけて承認
+    for link in report_links:
         try:
             page.goto(link if link.startswith("http") else CYBOZU_URL + link.lstrip("/"))
             page.wait_for_load_state("networkidle")
@@ -148,7 +156,6 @@ def process_workflow_items(page):
                     break
 
             if not report_text:
-                # ページ全体のテキストからある程度取得
                 report_text = page.inner_text("body")[:1000]
 
             if len(report_text) < 10:
@@ -178,27 +185,9 @@ def process_workflow_items(page):
                 comment_box.fill(comment)
                 time.sleep(1)
 
-            # デバッグ：最初の1件だけスクリーンショットとボタン一覧を表示
-            if processed == 0 and len(approval_links) > 0 and link == approval_links[0]:
-                page.screenshot(path="workflow_detail.png")
-                print("=== ページ内のinput/button要素 ===")
-                for el in page.query_selector_all('input, button'):
-                    el_type = el.get_attribute("type") or ""
-                    el_value = el.get_attribute("value") or ""
-                    el_name = el.get_attribute("name") or ""
-                    el_text = el.inner_text().strip()[:20]
-                    print(f"  <{el.evaluate('e => e.tagName').lower()}> type={el_type} value={el_value} name={el_name} text={el_text}")
-                print("=================================")
-
-            # 承認ボタンを探してクリック
-            approve_selectors = [
-                'input[name="Approve"]',
-                'input[value="この申請を決裁する"]',
-                'input[value*="承認"]',
-                'button:has-text("承認")',
-            ]
+            # 承認ボタンをクリック
             approved = False
-            for selector in approve_selectors:
+            for selector in ['input[name="Approve"]', 'input[value="この申請を決裁する"]']:
                 btn = page.query_selector(selector)
                 if btn:
                     btn.click()
@@ -206,6 +195,32 @@ def process_workflow_items(page):
                     approved = True
                     processed += 1
                     print(f"承認完了 ({processed}件目)")
+                    time.sleep(2)
+                    break
+
+            if not approved:
+                print("承認ボタンが見つかりませんでした。スキップします。")
+
+        except Exception as e:
+            print(f"エラーが発生しました: {e}")
+            continue
+
+    # 設備使用許可申請：コメントなしで即承認
+    for link in facility_links:
+        try:
+            page.goto(link if link.startswith("http") else CYBOZU_URL + link.lstrip("/"))
+            page.wait_for_load_state("networkidle")
+            time.sleep(2)
+
+            approved = False
+            for selector in ['input[name="Approve"]', 'input[value="この申請を決裁する"]']:
+                btn = page.query_selector(selector)
+                if btn:
+                    btn.click()
+                    page.wait_for_load_state("networkidle")
+                    approved = True
+                    processed += 1
+                    print(f"設備使用許可申請 承認完了 ({processed}件目)")
                     time.sleep(2)
                     break
 
