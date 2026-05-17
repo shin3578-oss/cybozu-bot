@@ -105,21 +105,28 @@ def approve_item(page):
 def process_workflow_items(page):
     go_to_workflow_index(page)
     processed = 0
+    skipped = set()
 
     while True:
         items = page.query_selector_all('a[href*="WorkFlowHandle"]')
 
         target = None
+        target_href = None
         is_report = False
         for item in items:
+            href = item.get_attribute("href")
+            if href in skipped:
+                continue
             text = item.inner_text().strip()
             if "日報" in text or "週報" in text:
                 target = item
+                target_href = href
                 is_report = True
                 print(f"日報・週報を処理: {text}")
                 break
             elif "設備使用許可" in text or "練習台帳" in text:
                 target = item
+                target_href = href
                 is_report = False
                 print(f"設備使用許可申請を処理: {text}")
                 break
@@ -150,9 +157,11 @@ def process_workflow_items(page):
                 print(f"承認完了 ({processed}件目)")
             else:
                 print("承認ボタンが見つかりませんでした。スキップします。")
+                skipped.add(target_href)
 
         except Exception as e:
             print(f"エラー: {e}")
+            skipped.add(target_href)
 
         go_to_workflow_index(page)
 
