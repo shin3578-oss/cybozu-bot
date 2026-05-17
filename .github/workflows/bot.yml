@@ -2,7 +2,7 @@ name: サイボウズ 日報自動承認
 
 on:
   schedule:
-    - cron: '0 * * * *'  # 毎時間実行
+    - cron: '8 * * * *'  # 毎時8分に実行
   workflow_dispatch:       # 手動実行も可能
 
 jobs:
