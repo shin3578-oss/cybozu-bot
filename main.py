@@ -77,159 +77,84 @@ def login(page):
     page.locator('button:has-text("ログイン"), input[value="ログイン"]').first.click()
     page.wait_for_load_state("networkidle")
     time.sleep(2)
-    page.screenshot(path="login_result.png")
-    print(f"ログイン後URL: {page.url}")
     print("ログイン完了")
 
 
-def process_workflow_items(page):
-    # トップページのスクリーンショットを撮って確認
+def go_to_workflow_index(page):
     page.goto(CYBOZU_URL)
     page.wait_for_load_state("networkidle")
     time.sleep(2)
-    page.screenshot(path="workflow_page.png")
-    print(f"現在のURL: {page.url}")
-
-    # ワークフローリンクを探す
-    wf_link = page.query_selector('a[href*="workflow"], a[href*="Workflow"], a:has-text("ワークフロー")')
+    wf_link = page.query_selector('a:has-text("ワークフロー")')
     if wf_link:
-        wf_href = wf_link.get_attribute("href")
-        print(f"ワークフローリンク発見: {wf_href}")
         wf_link.click()
         page.wait_for_load_state("networkidle")
         time.sleep(2)
-        page.screenshot(path="workflow_page.png")
-        print(f"ワークフローURL: {page.url}")
-    else:
-        print("ワークフローリンクが見つかりません")
 
-    # ページ内の全リンクをデバッグ出力
-    all_links = page.query_selector_all('a[href]')
-    print(f"ページ内リンク総数: {len(all_links)}")
-    for a in all_links:
-        href = a.get_attribute("href")
-        text = a.inner_text().strip()[:30]
-        if href:
-            print(f"  [{text}] -> {href}")
 
-    # ワークフローアイテムを種類別に収集
-    items = page.query_selector_all('a[href*="WorkFlowHandle"]')
-    report_links = []    # 日報・週報（AIコメントあり）
-    facility_links = []  # 設備使用許可申請（コメントなし即承認）
+def approve_item(page):
+    for selector in ['input[name="Approve"]', 'input[value="この申請を決裁する"]']:
+        btn = page.query_selector(selector)
+        if btn:
+            btn.click()
+            page.wait_for_load_state("networkidle")
+            time.sleep(2)
+            return True
+    return False
 
-    for item in items:
-        href = item.get_attribute("href")
-        text = item.inner_text().strip()
-        if not href or not text:
-            continue
-        if "日報" in text or "週報" in text:
-            print(f"日報・週報: {text}")
-            report_links.append(href)
-        elif "設備使用許可" in text or "練習台帳" in text:
-            print(f"設備使用許可申請: {text}")
-            facility_links.append(href)
 
-    print(f"日報・週報: {len(report_links)}件 / 設備使用許可申請: {len(facility_links)}件")
-
+def process_workflow_items(page):
+    go_to_workflow_index(page)
     processed = 0
 
-    # 日報・週報：AIコメントをつけて承認
-    for link in report_links:
+    while True:
+        items = page.query_selector_all('a[href*="WorkFlowHandle"]')
+
+        target = None
+        is_report = False
+        for item in items:
+            text = item.inner_text().strip()
+            if "日報" in text or "週報" in text:
+                target = item
+                is_report = True
+                print(f"日報・週報を処理: {text}")
+                break
+            elif "設備使用許可" in text or "練習台帳" in text:
+                target = item
+                is_report = False
+                print(f"設備使用許可申請を処理: {text}")
+                break
+
+        if target is None:
+            print(f"処理完了。合計 {processed} 件を承認しました。")
+            break
+
         try:
-            page.goto(link if link.startswith("http") else CYBOZU_URL + link.lstrip("/"))
+            target.click()
             page.wait_for_load_state("networkidle")
             time.sleep(2)
 
-            # レポート本文を取得
-            report_text = ""
-            content_selectors = [
-                ".comment-body",
-                ".workflow-detail",
-                ".grn-workflow-detail",
-                "table.infolist-gf",
-                ".ocean-ui-comments-commentbody",
-            ]
-            for selector in content_selectors:
-                el = page.query_selector(selector)
-                if el:
-                    report_text = el.inner_text().strip()
-                    break
+            if is_report:
+                report_text = page.inner_text("body")[:2000]
+                print("AIコメントを生成中...")
+                comment = generate_comment(report_text)
+                print(f"生成コメント: {comment}")
 
-            if not report_text:
-                report_text = page.inner_text("body")[:1000]
-
-            if len(report_text) < 10:
-                print("内容を取得できませんでした。スキップします。")
-                continue
-
-            # AIでコメント生成
-            print("AIコメントを生成中...")
-            comment = generate_comment(report_text)
-            print(f"生成コメント: {comment}")
-
-            # コメント入力欄を探して入力
-            comment_box_selectors = [
-                'textarea[name*="comment"]',
-                'textarea[name*="Comment"]',
-                ".grn-comment-textarea textarea",
-                "textarea",
-            ]
-            comment_box = None
-            for selector in comment_box_selectors:
-                comment_box = page.query_selector(selector)
+                comment_box = page.query_selector("textarea")
                 if comment_box:
-                    break
+                    comment_box.click()
+                    comment_box.fill(comment)
+                    time.sleep(1)
 
-            if comment_box:
-                comment_box.click()
-                comment_box.fill(comment)
-                time.sleep(1)
-
-            # 承認ボタンをクリック
-            approved = False
-            for selector in ['input[name="Approve"]', 'input[value="この申請を決裁する"]']:
-                btn = page.query_selector(selector)
-                if btn:
-                    btn.click()
-                    page.wait_for_load_state("networkidle")
-                    approved = True
-                    processed += 1
-                    print(f"承認完了 ({processed}件目)")
-                    time.sleep(2)
-                    break
-
-            if not approved:
+            if approve_item(page):
+                processed += 1
+                print(f"承認完了 ({processed}件目)")
+            else:
                 print("承認ボタンが見つかりませんでした。スキップします。")
 
         except Exception as e:
-            print(f"エラーが発生しました: {e}")
-            continue
+            print(f"エラー: {e}")
 
-    # 設備使用許可申請：コメントなしで即承認
-    for link in facility_links:
-        try:
-            page.goto(link if link.startswith("http") else CYBOZU_URL + link.lstrip("/"))
-            page.wait_for_load_state("networkidle")
-            time.sleep(2)
-
-            approved = False
-            for selector in ['input[name="Approve"]', 'input[value="この申請を決裁する"]']:
-                btn = page.query_selector(selector)
-                if btn:
-                    btn.click()
-                    page.wait_for_load_state("networkidle")
-                    approved = True
-                    processed += 1
-                    print(f"設備使用許可申請 承認完了 ({processed}件目)")
-                    time.sleep(2)
-                    break
-
-            if not approved:
-                print("承認ボタンが見つかりませんでした。スキップします。")
-
-        except Exception as e:
-            print(f"エラーが発生しました: {e}")
-            continue
+        go_to_workflow_index(page)
 
     return processed
 
