@@ -15,8 +15,7 @@ API_KEY = os.getenv("ANTHROPIC_API_KEY")
 client = anthropic.Anthropic(api_key=API_KEY)
 
 
-def generate_comment(report_text: str) -> str:
-    is_shinomiya = "篠宮" in report_text
+def generate_comment(report_text: str, is_shinomiya: bool = False) -> str:
     if is_shinomiya:
         name_rule_header = """★★★ 最重要指示 ★★★
 この日報の提出者は「篠宮」です。
@@ -25,8 +24,10 @@ def generate_comment(report_text: str) -> str:
 ★★★★★★★★★★★★
 
 """
+        name_call_rule = "- この日報の提出者は「篠宮」のため、呼びかけは必ず「シノ」（呼び捨て）とする（「篠宮さん」「シノさん」は禁止）"
     else:
         name_rule_header = ""
+        name_call_rule = "- スタッフへの呼びかけは必ず「名字＋さん」とする（例：「石川さん」「小西さん」「若澤さん」）\n- 名前（下の名前）で呼ぶことは絶対にしない"
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
@@ -60,9 +61,7 @@ def generate_comment(report_text: str) -> str:
 - 文章が長い場合 → 深い振り返りを評価しつつ、次に集中する行動を考えさせる
 
 【名前呼びルール（厳守）】
-- スタッフへの呼びかけは必ず「名字＋さん」とする（例：「石川さん」「小西さん」「若澤さん」）
-- 名前（下の名前）で呼ぶことは絶対にしない
-- ただし提出者の名前が「篠宮」の場合のみ例外で、呼びかけは必ず「シノ」とする（「篠宮さん」「シノさん」と書いてはいけない）
+{name_call_rule}
 - コメント内で自然な形で必ず一度以上名前で呼びかける
 
 【出力前チェック】
@@ -186,13 +185,11 @@ def process_workflow_items(page):
 
             if is_report:
                 report_text = page.inner_text("body")[:2000]
-                # 申請者本人が篠宮かどうかを確認（ページ内に篠宮の文字があるだけでは判断しない）
                 submitter = get_submitter_name(page)
                 print(f"申請者: {submitter}")
-                if "篠宮" in submitter:
-                    report_text = "篠宮 " + report_text
+                is_shinomiya = "篠宮" in submitter
                 print("AIコメントを生成中...")
-                comment = generate_comment(report_text)
+                comment = generate_comment(report_text, is_shinomiya=is_shinomiya)
                 print(f"生成コメント: {comment}")
 
                 comment_box = page.query_selector("textarea")
