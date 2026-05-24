@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
@@ -84,6 +85,32 @@ def generate_comment(report_text: str) -> str:
     return comment
 
 
+def get_submitter_name(page) -> str:
+    """ワークフロー詳細ページから申請者（提出者）の名前だけを取得する"""
+    # 方法1: 申請者セルの隣のセルを取得
+    try:
+        申請者_el = page.query_selector('td:has-text("申請者")')
+        if 申請者_el:
+            name_text = 申請者_el.evaluate(
+                'el => { const next = el.nextElementSibling; return next ? next.innerText : ""; }'
+            )
+            if name_text and name_text.strip():
+                return name_text.strip()
+    except Exception:
+        pass
+
+    # 方法2: ページ先頭のテキストから「申請者」ラベル周辺を正規表現で抽出
+    try:
+        header = page.inner_text("body")[:600]
+        match = re.search(r'申請者[\s：:]+(\S{2,10})', header)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+
+    return ""
+
+
 def login(page):
     page.goto(CYBOZU_URL)
     page.wait_for_load_state("networkidle")
@@ -159,9 +186,10 @@ def process_workflow_items(page):
 
             if is_report:
                 report_text = page.inner_text("body")[:2000]
-                # 2000文字制限で名前が拾えない場合に備え、URLのテキストも追加で確認
-                full_text = page.inner_text("body")
-                if "篠宮" in full_text:
+                # 申請者本人が篠宮かどうかを確認（ページ内に篠宮の文字があるだけでは判断しない）
+                submitter = get_submitter_name(page)
+                print(f"申請者: {submitter}")
+                if "篠宮" in submitter:
                     report_text = "篠宮 " + report_text
                 print("AIコメントを生成中...")
                 comment = generate_comment(report_text)
