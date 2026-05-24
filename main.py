@@ -15,13 +15,25 @@ client = anthropic.Anthropic(api_key=API_KEY)
 
 
 def generate_comment(report_text: str) -> str:
+    is_shinomiya = "篠宮" in report_text
+    if is_shinomiya:
+        name_rule_header = """★★★ 最重要指示 ★★★
+この日報の提出者は「篠宮」です。
+呼びかけは必ず「シノ」（呼び捨て）にしてください。
+「篠宮さん」「シノさん」は絶対に使用禁止です。
+★★★★★★★★★★★★
+
+"""
+    else:
+        name_rule_header = ""
+
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[
             {
                 "role": "user",
-                "content": f"""あなたはスタッフの可能性を信じ、最大限支援する世界一の理解者として、日報・週報へのコメントを書く。
+                "content": f"""{name_rule_header}あなたはスタッフの可能性を信じ、最大限支援する世界一の理解者として、日報・週報へのコメントを書く。
 
 【基本方針】
 - スタッフが自主的に考え行動できる力を育てることを目的とする
@@ -49,7 +61,7 @@ def generate_comment(report_text: str) -> str:
 【名前呼びルール（厳守）】
 - スタッフへの呼びかけは必ず「名字＋さん」とする（例：「石川さん」「小西さん」「若澤さん」）
 - 名前（下の名前）で呼ぶことは絶対にしない
-- ただし週報提出者の名前が「シノ」の場合のみ例外で、呼びかけは必ず「シノ」とする（「シノさん」と書いてはいけない）
+- ただし提出者の名前が「篠宮」の場合のみ例外で、呼びかけは必ず「シノ」とする（「篠宮さん」「シノさん」と書いてはいけない）
 - コメント内で自然な形で必ず一度以上名前で呼びかける
 
 【出力前チェック】
@@ -66,7 +78,10 @@ def generate_comment(report_text: str) -> str:
             }
         ]
     )
-    return message.content[0].text
+    comment = message.content[0].text
+    if is_shinomiya:
+        comment = comment.replace("篠宮さん", "シノ").replace("シノさん", "シノ")
+    return comment
 
 
 def login(page):
@@ -144,6 +159,10 @@ def process_workflow_items(page):
 
             if is_report:
                 report_text = page.inner_text("body")[:2000]
+                # 2000文字制限で名前が拾えない場合に備え、URLのテキストも追加で確認
+                full_text = page.inner_text("body")
+                if "篠宮" in full_text:
+                    report_text = "篠宮 " + report_text
                 print("AIコメントを生成中...")
                 comment = generate_comment(report_text)
                 print(f"生成コメント: {comment}")
