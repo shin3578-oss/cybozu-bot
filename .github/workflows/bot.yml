@@ -1,4 +1,4 @@
-name: サイボウズ 日報自動承認
+name: サイボウズ 日報・設備使用許可書 自動承認
 
 on:
   schedule:
@@ -8,6 +8,8 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: リポジトリをチェックアウト
