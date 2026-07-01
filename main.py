@@ -152,10 +152,13 @@ def approve_item(page):
         'input[value="承認する"]',
         'input[value="決裁"]',
         'input[value="決裁する"]',
+        'input[value="確認する"]',
         'input[type="submit"][value*="承認"]',
         'input[type="submit"][value*="決裁"]',
+        'input[type="submit"][value*="確認"]',
         'button:has-text("承認")',
         'button:has-text("決裁")',
+        'button:has-text("確認する")',
         'a:has-text("この申請を承認")',
     ]
     for selector in selectors:
