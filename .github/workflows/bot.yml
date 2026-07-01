@@ -1,9 +1,7 @@
 name: サイボウズ 日報・設備使用許可書 自動承認
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'  # 30分ごとに実行
-  workflow_dispatch:       # 手動実行も可能
+  workflow_dispatch:  # Cron-job.org から呼び出す
 
 jobs:
   run-bot:

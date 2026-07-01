@@ -145,13 +145,44 @@ def go_to_workflow_index(page):
 
 
 def approve_item(page):
-    for selector in ['input[name="Approve"]', 'input[value="この申請を決裁する"]']:
-        btn = page.query_selector(selector)
-        if btn:
-            btn.click()
-            page.wait_for_load_state("networkidle")
-            time.sleep(2)
-            return True
+    selectors = [
+        'input[name="Approve"]',
+        'input[value="この申請を決裁する"]',
+        'input[value="承認"]',
+        'input[value="承認する"]',
+        'input[value="決裁"]',
+        'input[value="決裁する"]',
+        'input[type="submit"][value*="承認"]',
+        'input[type="submit"][value*="決裁"]',
+        'button:has-text("承認")',
+        'button:has-text("決裁")',
+        'a:has-text("この申請を承認")',
+    ]
+    for selector in selectors:
+        try:
+            btn = page.query_selector(selector)
+            if btn and btn.is_visible():
+                btn.click()
+                page.wait_for_load_state("networkidle")
+                time.sleep(2)
+                return True
+        except Exception:
+            continue
+
+    # デバッグ用：ボタンが見つからない場合にスクリーンショットを保存
+    try:
+        page.screenshot(path="no_approve_button.png")
+        print(f"[DEBUG] 承認ボタンが見つかりません。ページタイトル: {page.title()}")
+        print(f"[DEBUG] URL: {page.url}")
+        # ページ内のボタン・input要素を列挙
+        btns = page.query_selector_all('input[type="submit"], button, a[href*="WorkFlow"]')
+        for b in btns[:10]:
+            try:
+                print(f"[DEBUG] ボタン候補: tag={b.evaluate('el => el.tagName')}, value={b.get_attribute('value')}, text={b.inner_text()[:30]}")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[DEBUG] スクリーンショット保存失敗: {e}")
     return False
 
 
