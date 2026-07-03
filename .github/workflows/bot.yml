@@ -1,7 +1,7 @@
 name: サイボウズ 日報・設備使用許可書 自動承認
 
 on:
-  workflow_dispatch:  # Cron-job.org から呼び出す
+  workflow_dispatch:  # Cron-job.org から呼び出す（30分ごと）
 
 jobs:
   run-bot:
@@ -10,6 +10,43 @@ jobs:
       contents: read
 
     steps:
+      # 30分ごとに毎日動くこのワークフローを「時計」として使い、
+      # 月次ボットを所定の日時に起動する（Cron-job.org 無料枠12件の節約のため）。
+      # 起動は毎時00分の回のみ。起動失敗時はこのステップが失敗して通知される。
+      - name: 月次ボット起動判定（勤怠・給与）
+        env:
+          DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
+        run: |
+          DAY=$(TZ=Asia/Tokyo date +%d)
+          HOUR=$(TZ=Asia/Tokyo date +%H)
+          MIN=$(TZ=Asia/Tokyo date +%M)
+          echo "JST: ${DAY}日 ${HOUR}:${MIN}"
+          if [ $((10#$MIN)) -ge 30 ]; then
+            echo "毎時30分の回のためスキップ"
+            exit 0
+          fi
+          dispatch() {
+            curl -sf -X POST \
+              -H "Authorization: token $DISPATCH_PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/shin3578-oss/$1/actions/workflows/$2/dispatches" \
+              -d '{"ref":"main"}' \
+              && echo "→ $1 起動OK" \
+              || { echo "→ $1 起動失敗"; exit 1; }
+          }
+          # 勤怠自動集計: 毎月5日 21:00 JST
+          if [ "$DAY" = "05" ] && [ "$HOUR" = "21" ]; then
+            dispatch kintai-automation kintai_auto.yml
+          fi
+          # 給与振込チェック: 毎月10〜14日 9:00 / 13:00 / 18:00 JST
+          case "$DAY" in
+            10|11|12|13|14)
+              if [ "$HOUR" = "09" ] || [ "$HOUR" = "13" ] || [ "$HOUR" = "18" ]; then
+                dispatch payroll-check-bot payroll_check.yml
+              fi
+              ;;
+          esac
+
       - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
 
