@@ -13,7 +13,7 @@ jobs:
       # 30分ごとに毎日動くこのワークフローを「時計」として使い、
       # 月次ボットを所定の日時に起動する（Cron-job.org 無料枠12件の節約のため）。
       # 起動は毎時00分の回のみ。起動失敗時はこのステップが失敗して通知される。
-      - name: 月次ボット起動判定（勤怠・給与）
+      - name: 月次ボット起動判定（勤怠・給与・歩合突合）
         env:
           DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
         run: |
@@ -37,6 +37,10 @@ jobs:
           # 勤怠自動集計: 毎月5日 21:00 JST
           if [ "$DAY" = "05" ] && [ "$HOUR" = "21" ]; then
             dispatch kintai-automation kintai_auto.yml
+          fi
+          # コンサル歩合突合（前月分）: 毎月1日 9:00 JST
+          if [ "$DAY" = "01" ] && [ "$HOUR" = "09" ]; then
+            dispatch apotool-automation csv_matching.yml
           fi
           # 給与振込チェック: 毎月10〜14日 9:00 / 13:00 / 18:00 JST
           case "$DAY" in
