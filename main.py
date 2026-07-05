@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import time
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
@@ -193,6 +194,7 @@ def process_workflow_items(page):
     go_to_workflow_index(page)
     processed = 0
     skipped = set()
+    skip_reasons = []  # スキップした案件（承認漏れを黙って放置しないため呼び出し元で失敗扱いにする）
 
     while True:
         items = page.query_selector_all('a[href*="WorkFlowHandle"]')
@@ -222,6 +224,8 @@ def process_workflow_items(page):
             print(f"処理完了。合計 {processed} 件を承認しました。")
             break
 
+        item_label = target.inner_text().strip()[:60]
+
         try:
             target.click()
             page.wait_for_load_state("networkidle")
@@ -248,33 +252,47 @@ def process_workflow_items(page):
             else:
                 print("承認ボタンが見つかりませんでした。スキップします。")
                 skipped.add(target_href)
+                skip_reasons.append(f"承認ボタン不明: {item_label}")
 
         except Exception as e:
             print(f"エラー: {e}")
             skipped.add(target_href)
+            skip_reasons.append(f"エラー ({e}): {item_label}")
 
         go_to_workflow_index(page)
 
-    return processed
+    return processed, skip_reasons
 
 
 def main():
     print("=== サイボウズ 日報・週報 自動承認ツール ===")
+    run_error = None
+    skip_reasons = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
         try:
             login(page)
-            total = process_workflow_items(page)
+            total, skip_reasons = process_workflow_items(page)
             print(f"\n完了！合計 {total} 件を承認しました。")
         except Exception as e:
             print(f"エラー: {e}")
+            run_error = e
             page.screenshot(path="error_screenshot.png")
             print("エラー時のスクリーンショットを保存しました: error_screenshot.png")
         finally:
             time.sleep(3)
             browser.close()
+
+    # 失敗を「成功」で終わらせない（過去に承認ボタン変更でサイレントに承認漏れが続いた前例あり）
+    if run_error is not None:
+        sys.exit(1)
+    if skip_reasons:
+        print("スキップされた案件があるため失敗扱いにします:")
+        for reason in skip_reasons:
+            print(f"  - {reason}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
