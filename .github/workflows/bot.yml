@@ -67,7 +67,20 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Playwright ブラウザをインストール
-        run: playwright install chromium --with-deps
+        # Microsoftのaptリポジトリ署名エラー等の一過性障害で --with-deps が
+        # 丸ごと失敗しないよう、最大3回リトライする（2026-07-08導入）。
+        run: |
+          for i in 1 2 3; do
+            echo "ブラウザインストール 試行 $i/3"
+            if playwright install chromium --with-deps; then
+              echo "→ 成功"
+              exit 0
+            fi
+            echo "→ 失敗。10秒待って再試行..."
+            sleep 10
+          done
+          echo "3回とも失敗しました" >&2
+          exit 1
 
       - name: ボットを実行
         env:
