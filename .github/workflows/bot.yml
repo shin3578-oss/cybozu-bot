@@ -55,34 +55,6 @@ jobs:
               ;;
           esac
 
-      # 【臨時・2026年7月31日まで】GitHub Actions課金ブロック中の手動実行リマインド。
-      # 非公開リポジトリのActionsが全停止しているため、公開リポジトリのアラートBotから院長DMを送る。
-      # 7:00＝その日の手動実行リスト／19:00＝アポツール直前。8/1の無料枠リセット後にこのステップごと削除する。
-      # 本体（日報自動承認）を巻き込まないよう、失敗しても続行する独立ステップにしている。
-      - name: 手動実行リマインド（課金ブロック中の臨時・7/31まで）
-        continue-on-error: true
-        env:
-          DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
-        run: |
-          MON=$(TZ=Asia/Tokyo date +%m)
-          DAY=$(TZ=Asia/Tokyo date +%d)
-          HOUR=$(TZ=Asia/Tokyo date +%H)
-          MIN=$(TZ=Asia/Tokyo date +%M)
-          if [ "$MON" != "07" ] || [ $((10#$DAY)) -lt 27 ] || [ $((10#$MIN)) -ge 30 ]; then
-            echo "対象期間外または毎時30分の回 → スキップ"
-            exit 0
-          fi
-          MODE=""
-          [ "$HOUR" = "07" ] && MODE="morning"
-          [ "$HOUR" = "19" ] && MODE="evening"
-          if [ -z "$MODE" ]; then echo "リマインド時刻ではない（${HOUR}時）→ スキップ"; exit 0; fi
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-            -H "Authorization: token $DISPATCH_PAT" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/shin3578-oss/deadline-alert/actions/workflows/manual_reminder.yml/dispatches" \
-            -d "{\"ref\":\"main\",\"inputs\":{\"mode\":\"${MODE}\"}}")
-          echo "リマインド(${MODE}) dispatch HTTP status: $CODE"
-
       - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
 
