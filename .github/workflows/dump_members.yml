@@ -24,15 +24,7 @@ jobs:
           python-version: '3.11'
 
       - name: 依存パッケージをインストール
-        run: pip install -r requirements.txt
-
-      - name: Playwright ブラウザをインストール
-        run: |
-          for i in 1 2 3; do
-            if playwright install chromium --with-deps; then exit 0; fi
-            sleep 10
-          done
-          exit 1
+        run: pip install -r requirements.txt requests
 
       - name: メンバー一覧を取得
         env:
