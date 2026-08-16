@@ -1,3 +1,5 @@
 playwright
 anthropic
 python-dotenv
+google-auth
+requests
