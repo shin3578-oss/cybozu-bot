@@ -4,101 +4,76 @@
 雇用契約アプリ（Googleログインで本人確認する）に登録するアドレスを集めるための調査。
 サイボウズの認証情報はこのリポジトリのSecretsにしかないため、ここで実行する。
 
+cybozu.com のユーザーAPIを直接叩く（画面操作より速く確実）。
+  GET https://{サブドメイン}.cybozu.com/v1/users.json
+  ヘッダ X-Cybozu-Authorization: base64(ログインID:パスワード)
+
 読み取りのみ。サイボウズ側は一切変更しない。
-出力は氏名とメールアドレスだけに絞る（他の個人情報はログに出さない）。
+氏名とメールアドレス以外の個人情報はログに出さない。
 """
+import base64
 import os
 import re
-import time
+import sys
 
-from playwright.sync_api import sync_playwright
+import requests
 
 CYBOZU_URL = os.environ["CYBOZU_URL"]
 LOGIN_ID = os.environ["CYBOZU_LOGIN_ID"]
 PASSWORD = os.environ["CYBOZU_PASSWORD"]
 
-MAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+HOST = re.sub(r"https?://([^/]+).*", r"\1", CYBOZU_URL)
+AUTH = base64.b64encode(f"{LOGIN_ID}:{PASSWORD}".encode()).decode()
 
 
-def login(page):
-    page.goto(CYBOZU_URL)
-    page.wait_for_load_state("networkidle")
-    page.locator('input[name="username"], input[name="userid"], input[type="text"]').first.fill(LOGIN_ID)
-    page.locator('input[name="password"], input[type="password"]').first.fill(PASSWORD)
-    page.locator('button:has-text("ログイン"), input[value="ログイン"]').first.click()
-    page.wait_for_load_state("networkidle")
-    time.sleep(2)
-    print("ログイン完了")
-    print("トップのURL:", page.url)
-
-
-def try_paths(page):
-    """メンバー名簿がありそうな画面を順に開いて、メールアドレスを拾う。
-
-    サイボウズは製品（Office / Garoon / kintone）で画面構成が違うため、
-    候補を順に当たって、取れたところで止める。
-    """
-    base = CYBOZU_URL.rstrip("/")
-    base = re.sub(r"/(index\.html?|\?.*)$", "", base)
-
-    candidates = [
-        # サイボウズ Office のユーザー名簿
-        f"{base}/?page=UserList",
-        f"{base}/?page=AddressBook",
-        # cybozu.com 共通管理（クラウド版）
-        f"{base}/v1/admin/users",
-        "https://" + re.sub(r"https?://([^/]+).*", r"\1", CYBOZU_URL) + "/v1/admin/users",
-        # Garoon
-        f"{base}/grn.exe/address/index",
-    ]
-
-    found = {}
-    for url in candidates:
-        try:
-            page.goto(url, timeout=30000)
-            page.wait_for_load_state("networkidle", timeout=30000)
-            time.sleep(2)
-        except Exception as e:
-            print(f"  {url} → 開けず（{type(e).__name__}）")
-            continue
-
-        text = page.content()
-        mails = set(MAIL_RE.findall(text))
-        # 画面の飾りで出てくるサイボウズ自身のアドレスは除く
-        mails = {m for m in mails if "cybozu" not in m.lower()}
-        print(f"  {url} → メールらしき文字列 {len(mails)} 件")
-        if mails:
-            found[url] = sorted(mails)
-    return found
+def get(path, params=None):
+    r = requests.get(f"https://{HOST}{path}",
+                     headers={"X-Cybozu-Authorization": AUTH},
+                     params=params or {}, timeout=60)
+    return r
 
 
 def main():
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        login(page)
+    print(f"接続先: {HOST}")
 
-        print("\n=== メンバー名簿を探します ===")
-        found = try_paths(page)
+    r = get("/v1/users.json", {"size": 100})
+    print("users.json:", r.status_code)
+    if r.status_code != 200:
+        print("本文（先頭200字）:", r.text[:200])
+        print("\n→ ユーザーAPIが使えません。共通管理の権限が要る可能性があります。")
+        sys.exit(0)
 
-        print("\n=== 結果 ===")
-        if not found:
-            print("メールアドレスは見つかりませんでした。")
-            print("いま開ける画面の一覧を出します（次の手がかり用）:")
-            page.goto(CYBOZU_URL)
-            page.wait_for_load_state("networkidle")
-            for a in page.query_selector_all("a")[:60]:
-                t = (a.inner_text() or "").strip().replace("\n", " ")
-                h = a.get_attribute("href") or ""
-                if t:
-                    print(f"  {t[:24]:<26} {h[:80]}")
+    users = r.json().get("users", [])
+    print(f"\n=== メンバー {len(users)} 名 ===")
+    print(f"{'氏名':<14} {'ログイン名':<22} メールアドレス")
+    print("-" * 76)
+
+    gmail, other, none = [], [], []
+    for u in users:
+        name = (u.get("name") or "").strip()
+        code = (u.get("code") or "").strip()
+        mail = (u.get("email") or "").strip()
+        valid = "有効" if u.get("valid") else "停止中"
+        print(f"{name:<14} {code:<22} {mail or '(未登録)'}  [{valid}]")
+        if not u.get("valid"):
+            continue
+        if not mail:
+            none.append(name)
+        elif mail.lower().endswith(("@gmail.com", "@googlemail.com")):
+            gmail.append((name, mail))
         else:
-            for url, mails in found.items():
-                print(f"\n--- {url} ---")
-                for m in mails:
-                    print("  ", m)
+            other.append((name, mail))
 
-        browser.close()
+    print(f"\n=== 仕分け（有効なメンバーのみ）===")
+    print(f"Gmail（そのまま使える）      : {len(gmail)} 名")
+    for n, m in gmail:
+        print(f"    {n}\t{m}")
+    print(f"Gmail以外（Googleログイン不可の可能性）: {len(other)} 名")
+    for n, m in other:
+        print(f"    {n}\t{m}")
+    print(f"未登録                      : {len(none)} 名")
+    for n in none:
+        print(f"    {n}")
 
 
 if __name__ == "__main__":
