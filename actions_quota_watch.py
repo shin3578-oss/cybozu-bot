@@ -17,8 +17,12 @@ GitHub Actions 無料枠の見張り（公開リポジトリ側の安全網）
   ・2,000分を超えている → 🚨 全停止中として院長DM（失敗通知Bot）
   ・1,600分（80%）を超えている → ⚠️ 警告として院長DM（レポートBot）
   ・それ未満 → 何もしない（毎日の平常報告は出さない）
-【通知経路】deadline-alert（公開）の lw_notify.yml を dispatch する。
+【通知経路】deadline-alert（公開）の quota_alert.yml を dispatch する。
   このリポジトリはLINEワークスの秘密鍵を持たないため、鍵を持つ公開リポジトリに送信を頼む。
+  渡すのは**数値と警戒レベルだけ**で、文面は向こうで組み立てる。
+  ワークフローの入力は実行ログにそのまま印字され、公開リポジトリでは誰でも読めるため、
+  「好きな文面を送れる汎用の入口」を公開側に作ってはいけない
+  （2026-08-10に院長判断で却下・2026-08-31に実測で再確認）。
 【対象】ユーザーの非公開リポジトリを毎回APIで引き直す（一覧を手で持たない＝新設の取りこぼしを防ぐ）
 """
 
@@ -34,6 +38,7 @@ JST = timezone(timedelta(hours=9))
 FREE_LIMIT_MIN = 2000
 WARN_MIN = 1600            # 80%
 NOTIFY_REPO = "shin3578-oss/deadline-alert"   # LINEワークス送信を頼む公開リポジトリ
+NOTIFY_WORKFLOW = "quota_alert.yml"
 MAX_CALLS = 900            # APIの叩きすぎ防止（1回の見張りで使う上限）
 
 TOKEN = os.environ.get("DISPATCH_PAT") or os.environ.get("GITHUB_PAT") or ""
@@ -106,18 +111,22 @@ def used_minutes(period):
     return total, detail
 
 
-def notify(message, bot_id):
+def notify(inputs):
+    """deadline-alert の quota_alert.yml を起こして院長DMを送ってもらう。
+
+    渡すのは数値と警戒レベルだけ。文面は向こうで組み立てる（公開リポジトリの
+    実行ログに任意の文章が残らないようにするため）。
+    """
     # NO_NOTIFY=1 で送らずに内容だけ出す（動作確認用）
     if os.environ.get("NO_NOTIFY", "").strip() in ("1", "true", "True"):
-        print("--- NO_NOTIFY のため送信しない。送るはずだった内容 ---")
-        print(f"[bot_id={bot_id}]")
-        print(message)
+        print("--- NO_NOTIFY のため送信しない。渡すはずだった値 ---")
+        print(json.dumps(inputs, ensure_ascii=False, indent=2))
         print("--- ここまで ---")
         return
-    body = json.dumps({"ref": "main",
-                       "inputs": {"message": message, "bot_id": bot_id}}).encode("utf-8")
+
+    body = json.dumps({"ref": "main", "inputs": inputs}).encode("utf-8")
     req = urllib.request.Request(
-        f"https://api.github.com/repos/{NOTIFY_REPO}/actions/workflows/lw_notify.yml/dispatches",
+        f"https://api.github.com/repos/{NOTIFY_REPO}/actions/workflows/{NOTIFY_WORKFLOW}/dispatches",
         data=body,
         headers={"Authorization": f"Bearer {TOKEN}",
                  "Accept": "application/vnd.github+json",
@@ -125,8 +134,8 @@ def notify(message, bot_id):
         method="POST")
     with urllib.request.urlopen(req, timeout=30) as res:
         if res.status not in (200, 204):
-            raise RuntimeError(f"通知のdispatchに失敗: HTTP {res.status}")
-    print("院長DMへ通知した")
+            raise RuntimeError(f"アラートのdispatchに失敗: HTTP {res.status}")
+    print("院長DMへのアラートを起こした")
 
 
 def main():
@@ -147,26 +156,13 @@ def main():
     reset = (now.replace(day=1) + timedelta(days=days_in_month)).replace(day=1)
 
     if used >= FREE_LIMIT_MIN:
-        notify(
-            "【GitHub Actions 無料枠】🚨 使い切りました。非公開リポジトリの自動化が全部止まっています。\n"
-            f"当月の消費: {used}分 / {FREE_LIMIT_MIN}分\n"
-            f"内訳: {top}\n"
-            f"止まっているもの: アポツール自動実行・朝のアシスタント・ささっとペイ・GBP投稿ほか（apotool-automation の全部）\n"
-            f"動いているもの: サイボウズBot・期限アラート（公開リポジトリなので無料無制限）\n"
-            f"復旧: {reset.month}月1日に枠がリセットされれば自動で戻ります（UTC基準のため朝9時ごろ）。\n"
-            "▶ 対処: AIに「Actionsの無料枠が切れた」と伝えてください（消費の削り方まで対応します）",
-            "12789558")   # 失敗通知Bot
+        notify({"level": "blocked", "used": str(used), "forecast": str(forecast),
+                "detail": top, "reset_month": str(reset.month)})
         return 0
 
     if used >= WARN_MIN or forecast > FREE_LIMIT_MIN:
-        notify(
-            "【GitHub Actions 無料枠】⚠️ 残りが少なくなっています。\n"
-            f"当月の消費: {used}分 / {FREE_LIMIT_MIN}分（残り {remain}分）\n"
-            f"このペースの月末見込み: 約 {forecast}分\n"
-            f"内訳: {top}\n"
-            "使い切ると非公開リポジトリの自動化が全部・無音で止まります（2026-08-30に実際に起きました）。\n"
-            "▶ 対処: AIに「Actionsの消費を減らして」と伝えてください",
-            "12786828")   # レポートBot
+        notify({"level": "warn", "used": str(used), "forecast": str(forecast),
+                "detail": top, "reset_month": str(reset.month)})
         return 0
 
     print("枠に余裕あり。通知しない。")
