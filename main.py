@@ -32,7 +32,7 @@ def generate_comment(report_text: str, is_shinomiya: bool = False) -> str:
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=2048,   # 2026-09-23: 1024だと長い日報でコメントが途中で切れていた
         messages=[
             {
                 "role": "user",
@@ -89,7 +89,14 @@ def generate_comment(report_text: str, is_shinomiya: bool = False) -> str:
             }
         ]
     )
-    comment = message.content[0].text
+    # 2026-09-23: content[0] 決め打ち＋max_tokens切れの見落としを解消
+    # （youtube-agent/llm_json.py の response_text と同じ判定。途中で切れたコメントを貼らない）
+    if getattr(message, "stop_reason", None) == "max_tokens":
+        raise RuntimeError("AIのコメントが max_tokens で途中で切れた")
+    _texts = [b.text for b in message.content if getattr(b, "type", "") == "text"]
+    if not _texts:
+        raise RuntimeError("AIの返答にテキストが入っていない")
+    comment = _texts[-1]
     if is_shinomiya:
         comment = comment.replace("篠宮さん", "シノ").replace("シノさん", "シノ")
     return comment
