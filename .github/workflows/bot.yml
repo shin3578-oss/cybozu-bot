@@ -1,5 +1,5 @@
 # ==========================================================
-# 【何をする】サイボウズの日報・週報をAI添削して自動承認（＋勤怠・給与・CSV突合の月次起動役
+# 【何をする】サイボウズの日報・週報をAI添削して自動承認（＋勤怠・給与・CSV突合・練習台帳ランキングの月次起動役
 #            ＋ジョブメドレー応募者ラリーの承認見張り＝院長がOKを入れたら送信を起こす
 #            ＋GitHub Actions 無料枠の見張り＝毎日9:00に非公開リポジトリの消費を測る）
 # 【いつ動く】30分ごと｜Cron-job.org「サイボウズBot」ジョブが起動
@@ -56,6 +56,32 @@ jobs:
               fi
               ;;
           esac
+          # 練習台帳ランキング（1月〜前月末の提出率→スプシ更新→全体チャンネルへ投稿）:
+          # 毎月6日 9:00 JST。6日が休診日なら次の診療日の9:00（2026-10-05 院長指示）。
+          # 勤怠CSVが前月分そろうのを待つため5日の勤怠集計より後ろに置く。
+          # 休診日は公開 closed_days.json で判定。読めなければ日曜だけ休みとして続行（診療日扱い）
+          if [ "$HOUR" = "09" ] && [ $((10#$DAY)) -ge 6 ] && [ $((10#$DAY)) -le 15 ]; then
+            FIRST=$(python3 - <<'PY'
+          import json, urllib.request, datetime
+          jst = datetime.timezone(datetime.timedelta(hours=9))
+          today = datetime.datetime.now(jst).date()
+          try:
+              closed = set(json.load(urllib.request.urlopen(
+                  "https://shin3578-oss.github.io/kds-dashboard/closed_days.json", timeout=20))["days"])
+          except Exception as e:
+              print(f"closed_days.json を読めません（{e}）→日曜だけ休みとして判定", file=__import__("sys").stderr)
+              closed = set()
+          d = today.replace(day=6)
+          while d.weekday() == 6 or d.isoformat() in closed:
+              d += datetime.timedelta(days=1)
+          print("yes" if d == today else "no")
+          PY
+          )
+            echo "練習台帳ランキング: 今日が6日以降の最初の診療日か → $FIRST"
+            if [ "$FIRST" = "yes" ]; then
+              dispatch kintai-automation renshu_daicho.yml
+            fi
+          fi
 
       - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
