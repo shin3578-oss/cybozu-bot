@@ -1,5 +1,5 @@
 # ==========================================================
-# 【何をする】サイボウズの日報・週報をAI添削して自動承認（＋勤怠・給与・CSV突合・練習台帳ランキングの月次起動役
+# 【何をする】サイボウズの日報・週報をAI添削して自動承認（＋勤怠・給与・CSV突合・練習台帳ランキング・空き時間タスク設定率の月次起動役
 #            ＋ジョブメドレー応募者ラリーの承認見張り＝院長がOKを入れたら送信を起こす
 #            ＋GitHub Actions 無料枠の見張り＝毎日9:00に非公開リポジトリの消費を測る）
 # 【いつ動く】30分ごと｜Cron-job.org「サイボウズBot」ジョブが起動
@@ -19,7 +19,7 @@ jobs:
       # 30分ごとに毎日動くこのワークフローを「時計」として使い、
       # 月次ボットを所定の日時に起動する（Cron-job.org 無料枠12件の節約のため）。
       # 起動は毎時00分の回のみ。起動失敗時はこのステップが失敗して通知される。
-      - name: 月次ボット起動判定（勤怠・給与・歩合突合）
+      - name: 月次ボット起動判定（勤怠・給与・歩合突合・練習台帳・空き時間タスク）
         env:
           DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
         run: |
@@ -80,6 +80,31 @@ jobs:
             echo "練習台帳ランキング: 今日が6日以降の最初の診療日か → $FIRST"
             if [ "$FIRST" = "yes" ]; then
               dispatch kintai-automation renshu_daicho.yml
+            fi
+          fi
+          # 空き時間タスク設定率（1月〜前月末→スプシ更新→全体チャンネルへ投稿）:
+          # 毎月12日 9:00 JST。12日が休診日なら次の診療日の9:00（2026-10-05 院長指示）。
+          # 練習台帳ランキング（6日）と同じ日にしない＝院長「同じ日だとそれぞれが霞んでしまう」
+          if [ "$HOUR" = "09" ] && [ $((10#$DAY)) -ge 12 ] && [ $((10#$DAY)) -le 21 ]; then
+            FIRST12=$(python3 - <<'PY'
+          import json, urllib.request, datetime
+          jst = datetime.timezone(datetime.timedelta(hours=9))
+          today = datetime.datetime.now(jst).date()
+          try:
+              closed = set(json.load(urllib.request.urlopen(
+                  "https://shin3578-oss.github.io/kds-dashboard/closed_days.json", timeout=20))["days"])
+          except Exception as e:
+              print(f"closed_days.json を読めません（{e}）→日曜だけ休みとして判定", file=__import__("sys").stderr)
+              closed = set()
+          d = today.replace(day=12)
+          while d.weekday() == 6 or d.isoformat() in closed:
+              d += datetime.timedelta(days=1)
+          print("yes" if d == today else "no")
+          PY
+          )
+            echo "空き時間タスク設定率: 今日が12日以降の最初の診療日か → $FIRST12"
+            if [ "$FIRST12" = "yes" ]; then
+              dispatch kintai-automation task_settei.yml
             fi
           fi
 
