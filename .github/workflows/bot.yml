@@ -1,5 +1,6 @@
 # ==========================================================
-# 【何をする】サイボウズの日報・週報をAI添削して自動承認（＋勤怠・給与・CSV突合・練習台帳ランキング・空き時間タスク設定率の月次起動役
+# 【何をする】サイボウズの日報・週報をAI添削して自動承認
+#            ＋4つ（患者トラブル・ミス・不調・院長への相談）に当たる日報だけ院長DMへ知らせる（2026-10-05〜）（＋勤怠・給与・CSV突合・練習台帳ランキング・空き時間タスク設定率の月次起動役
 #            ＋ジョブメドレー応募者ラリーの承認見張り＝院長がOKを入れたら送信を起こす
 #            ＋GitHub Actions 無料枠の見張り＝毎日9:00に非公開リポジトリの消費を測る）
 # 【いつ動く】30分ごと｜Cron-job.org「サイボウズBot」ジョブが起動
@@ -185,4 +186,7 @@ jobs:
           CYBOZU_LOGIN_ID: ${{ secrets.CYBOZU_LOGIN_ID }}
           CYBOZU_PASSWORD: ${{ secrets.CYBOZU_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # 4つ（患者トラブル・ミス・不調・相談）に当たる日報を院長DMへ送るとき、
+          # apotool（非公開）の lw_notify.yml を起こすのに使う（2026-10-05）
+          DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
         run: python main.py

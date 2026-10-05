@@ -1,7 +1,9 @@
+import json
 import os
 import re
 import sys
 import time
+import urllib.request
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 import anthropic
@@ -12,11 +14,22 @@ CYBOZU_URL = os.getenv("CYBOZU_URL")
 LOGIN_ID = os.getenv("CYBOZU_LOGIN_ID")
 PASSWORD = os.getenv("CYBOZU_PASSWORD")
 API_KEY = os.getenv("ANTHROPIC_API_KEY")
+DISPATCH_PAT = os.getenv("DISPATCH_PAT", "")
 
 client = anthropic.Anthropic(api_key=API_KEY)
 
+# 院長が日報で「自分が見ないと」と反応する4つ（院長確認 2026-10-05）。
+# 当たった日報だけ院長DMへ届ける＝院長が全部読まなくて済むようにする（手放す順番の1段目「確かめる」）
+JUDGE_MARK = "===院長判定==="
+CATEGORY_LABELS = {
+    1: "①患者さんとのトラブル",
+    2: "②ミス・ヒヤリハット",
+    3: "③気持ちや体調の不調",
+    4: "④院長への相談・提案",
+}
 
-def generate_comment(report_text: str, is_shinomiya: bool = False) -> str:
+
+def generate_comment(report_text: str, is_shinomiya: bool = False):
     if is_shinomiya:
         name_rule_header = """★★★ 最重要指示 ★★★
 この日報の提出者は「篠宮」です。
@@ -85,7 +98,18 @@ def generate_comment(report_text: str, is_shinomiya: bool = False) -> str:
 {report_text}
 ---
 
-コメントのみを出力してください。"""
+【院長への知らせ判定】
+コメントを書き終えたら、次の行に区切り「{JUDGE_MARK}」を1行だけ書き、その次の行に判定をJSONで1行だけ書く。
+判定は日報・週報の内容について、次の4つのどれに当たるかを番号で選ぶ（当たらなければ空の配列）。
+1 = 患者さんとのトラブル（クレーム・患者さんの不満・説明がうまくいかなかった）
+2 = ミス・ヒヤリハット（診療や受付でのミス・事故になりかけたこと）
+3 = 気持ちや体調の不調（疲れ・悩み・人間関係のつらさ・辞めたそうな気配）
+4 = 院長への相談・提案（院長に決めてほしいこと・やりたい提案・困りごと）
+迷ったら当てはまる側に入れる（院長への知らせもれを防ぐため）。
+「一文」には、当たった理由になる日報の中の一文をそのまま書く（当たらなければ空文字）。
+形式：{{"該当": [3], "一文": "最近うまく眠れていません。"}}
+
+出力は「コメント」「区切り行」「判定JSON」の順だけにする。それ以外は書かない。"""
             }
         ]
     )
@@ -96,10 +120,74 @@ def generate_comment(report_text: str, is_shinomiya: bool = False) -> str:
     _texts = [b.text for b in message.content if getattr(b, "type", "") == "text"]
     if not _texts:
         raise RuntimeError("AIの返答にテキストが入っていない")
-    comment = _texts[-1]
+    comment, judge = split_judgement(_texts[-1])
     if is_shinomiya:
         comment = comment.replace("篠宮さん", "シノ").replace("シノさん", "シノ")
-    return comment
+    return comment, judge
+
+
+def split_judgement(text: str):
+    """AIの返答を「コメント」と「院長への知らせ判定」に分ける。
+
+    判定が読めないときは error を立てて返す（＝院長に知らせる側へ倒す。黙って見逃さない）。
+    区切りが崩れて判定がコメント側に混ざったときは、スタッフに見えるので例外にする（承認せず次の回でやり直し）。
+    """
+    if JUDGE_MARK in text:
+        comment, rest = text.split(JUDGE_MARK, 1)
+    else:
+        comment, rest = text, ""
+    comment = comment.strip().rstrip("`-=＝ \n").strip()
+    # 区切りが崩れて判定JSONがコメント側に残ったら、スタッフに見えるので貼らずに止める（次の回でやり直し）
+    if "該当" in comment and "{" in comment:
+        raise RuntimeError("AIの返答で判定とコメントを分けられなかった")
+    if not comment:
+        raise RuntimeError("AIのコメントが空だった")
+    if not rest:
+        return comment, {"該当": [], "一文": "", "error": "区切りなし"}
+    m = re.search(r"\{.*\}", rest, re.S)
+    try:
+        data = json.loads(m.group(0)) if m else None
+        cats = sorted({int(c) for c in data.get("該当", []) if int(c) in CATEGORY_LABELS})
+        return comment, {"該当": cats, "一文": str(data.get("一文", "")).strip()}
+    except Exception:
+        return comment, {"該当": [], "一文": "", "error": "形式違い"}
+
+
+def notify_incho(alerts):
+    """院長に知らせる日報を、apotool の lw_notify.yml（非公開）経由で院長DMへ送る。
+
+    このリポジトリは公開＝実行ログを誰でも読めるので、日報の中身はログに出さない。
+    非公開リポジトリのワークフロー入力に載せて送り、こちらのログには件数だけ出す。
+    """
+    lines = [f"【日報・要確認】{len(alerts)}件（試運転中：拾いもれがあれば一言ください）"]
+    for a in alerts:
+        lines.append("━━━━━━━━")
+        lines.append(f"{a['name']}｜{a['title']}")
+        if a.get("error"):
+            lines.append(f"⚠️ AIの判定を読み取れなかった（{a['error']}）ため、念のためお知らせします")
+        else:
+            lines.append(" ／ ".join(CATEGORY_LABELS[c] for c in a["cats"]))
+        if a.get("quote"):
+            lines.append(f"「{a['quote']}」")
+        lines.append(a["url"])
+    message = "\n".join(lines)
+
+    if os.getenv("NO_NOTIFY", "").strip() in ("1", "true", "True"):
+        print(f"NO_NOTIFY のため院長DMは送らない（{len(alerts)}件）")
+        return
+
+    body = json.dumps({"ref": "main", "inputs": {"message": message, "bot_id": "12266491"}}).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.github.com/repos/shin3578-oss/apotool-automation/actions/workflows/lw_notify.yml/dispatches",
+        data=body,
+        headers={"Authorization": f"Bearer {DISPATCH_PAT}",
+                 "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json"},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=30) as res:
+        if res.status not in (200, 204):
+            raise RuntimeError(f"院長DMの起動に失敗: HTTP {res.status}")
+    print(f"院長への知らせを送った（{len(alerts)}件）")
 
 
 def get_submitter_name(page) -> str:
@@ -197,7 +285,7 @@ def approve_item(page):
     return False
 
 
-def process_workflow_items(page):
+def process_workflow_items(page, alerts):
     go_to_workflow_index(page)
     processed = 0
     skipped = set()
@@ -232,6 +320,7 @@ def process_workflow_items(page):
             break
 
         item_label = target.inner_text().strip()[:60]
+        pending_alert = None
 
         try:
             target.click()
@@ -244,8 +333,18 @@ def process_workflow_items(page):
                 print(f"申請者: {submitter}")
                 is_shinomiya = "篠宮" in submitter
                 print("AIコメントを生成中...")
-                comment = generate_comment(report_text, is_shinomiya=is_shinomiya)
-                print(f"生成コメント: {comment}")
+                comment, judge = generate_comment(report_text, is_shinomiya=is_shinomiya)
+                # 公開リポジトリ＝ログは誰でも読めるので、コメント本文と判定の中身は出さない（2026-10-05）
+                print(f"コメント生成済み（{len(comment)}文字）")
+                if judge["該当"] or judge.get("error"):
+                    pending_alert = {
+                        "name": submitter or "（提出者不明）",
+                        "title": item_label,
+                        "cats": judge["該当"],
+                        "quote": judge["一文"],
+                        "error": judge.get("error"),
+                        "url": page.url,
+                    }
 
                 comment_box = page.query_selector("textarea")
                 if comment_box:
@@ -256,6 +355,9 @@ def process_workflow_items(page):
             if approve_item(page):
                 processed += 1
                 print(f"承認完了 ({processed}件目)")
+                # 承認できた日報だけ知らせる（承認できず次の回でやり直す日報を二重に知らせないため）
+                if pending_alert:
+                    alerts.append(pending_alert)
             else:
                 print("承認ボタンが見つかりませんでした。スキップします。")
                 skipped.add(target_href)
@@ -275,13 +377,15 @@ def main():
     print("=== サイボウズ 日報・週報 自動承認ツール ===")
     run_error = None
     skip_reasons = []
+    alerts = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
         try:
             login(page)
-            total, skip_reasons = process_workflow_items(page)
+            # alerts は呼び出し側が持つ＝途中で例外が出ても、承認まで済んだ分は下で知らせられる
+            total, skip_reasons = process_workflow_items(page, alerts)
             print(f"\n完了！合計 {total} 件を承認しました。")
         except Exception as e:
             print(f"エラー: {e}")
@@ -291,6 +395,16 @@ def main():
         finally:
             time.sleep(3)
             browser.close()
+
+    # 院長への知らせ（途中でエラーが出ても、承認まで済んだ分は知らせる）
+    if alerts:
+        try:
+            notify_incho(alerts)
+        except Exception as e:
+            print(f"院長への知らせに失敗: {e}")
+            run_error = run_error or e
+    else:
+        print("院長に知らせる日報は無し")
 
     # 失敗を「成功」で終わらせない（過去に承認ボタン変更でサイレントに承認漏れが続いた前例あり）
     if run_error is not None:
