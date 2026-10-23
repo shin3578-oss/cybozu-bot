@@ -145,6 +145,19 @@ jobs:
           fi
           python actions_quota_watch.py
 
+      # 院長PCの実行係（apotool-automation の self-hosted runner）の見張り（2026-10-22〜）。
+      # 2026-10-23: Playwright の取得より前へ移した（10/23 6:00 に取得が一時失敗し、この見張りまで飛ばされたため）。
+      # 30分ごとに動くこのワークフローを時計に使う。本体は apotool-automation の runner_watch.py（非公開）を
+      # その場で取ってきて動かす（複製しない）。止まっていれば院長DMへ（同じ警告は6時間に1回・復旧で1回）
+      - name: 院長PCの実行係を見張る
+        continue-on-error: true
+        env:
+          RUNNER_WATCH_PAT: ${{ secrets.RUNNER_WATCH_PAT }}
+        run: |
+          curl -sf -H "Authorization: Bearer $RUNNER_WATCH_PAT" -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/shin3578-oss/apotool-automation/contents/runner_watch.py" -o "$RUNNER_TEMP/runner_watch.py"
+          python "$RUNNER_TEMP/runner_watch.py" --dispatch-notify
+
       - name: 依存パッケージをインストール
         run: pip install -r requirements.txt
 
@@ -179,18 +192,6 @@ jobs:
           JOBMEDLEY_REPLY_SHEET_ID: ${{ secrets.JOBMEDLEY_REPLY_SHEET_ID }}
           DISPATCH_PAT:             ${{ secrets.DISPATCH_PAT }}
         run: python jobmedley_approval_watch.py
-
-      # 院長PCの実行係（apotool-automation の self-hosted runner）の見張り（2026-10-22〜）。
-      # 30分ごとに動くこのワークフローを時計に使う。本体は apotool-automation の runner_watch.py（非公開）を
-      # その場で取ってきて動かす（複製しない）。止まっていれば院長DMへ（同じ警告は6時間に1回・復旧で1回）
-      - name: 院長PCの実行係を見張る
-        continue-on-error: true
-        env:
-          RUNNER_WATCH_PAT: ${{ secrets.RUNNER_WATCH_PAT }}
-        run: |
-          curl -sf -H "Authorization: Bearer $RUNNER_WATCH_PAT" -H "Accept: application/vnd.github.raw" \
-            "https://api.github.com/repos/shin3578-oss/apotool-automation/contents/runner_watch.py" -o "$RUNNER_TEMP/runner_watch.py"
-          python "$RUNNER_TEMP/runner_watch.py" --dispatch-notify
 
       - name: ボットを実行
         env:
