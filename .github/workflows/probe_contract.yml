@@ -15,7 +15,9 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - uses: actions/cache@v4
-        with: { path: ~/.cache/ms-playwright, key: ms-playwright-chromium-${{ runner.os }}-v1 }
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-chromium-${{ runner.os }}-v1
       - run: playwright install chromium
       - env:
           CYBOZU_URL: ${{ secrets.CYBOZU_URL }}
