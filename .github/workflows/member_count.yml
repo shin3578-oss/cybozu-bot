@@ -47,6 +47,7 @@ jobs:
           DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
           NO_NOTIFY: ${{ inputs.no_notify }}
           ENC_PUBKEY: ${{ inputs.enc_pubkey }}
+          CYBOZU_MEMBER_RULES: ${{ secrets.CYBOZU_MEMBER_RULES }}
         run: python member_count_check.py
 
       - name: 失敗を通知

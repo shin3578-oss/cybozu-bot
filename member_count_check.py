@@ -4,6 +4,10 @@
 - サイボウズ側: cybozu.com のユーザーAPIで「使用中（valid）」のユーザーを数える
 - スタッフ側 : スタッフ名簿スプシ（今いる人だけが載る・卒業したら行を消す運用）の
                「正社員名簿」「パート」タブの氏名
+- 名簿の外でサイボウズを使う人（院長・育休中の先生・社労士など）と、名簿にいてもサイボウズを
+  使わない人（土曜アルバイト・清掃など）は、Secret CYBOZU_MEMBER_RULES（JSON）で持つ（2026-10-26 院長回答）。
+  {"extra_users": [名簿の外の利用者], "no_account": [アカウントを作らない名簿の人]}
+  変わる事実なのでコードに書かない。公開リポジトリなので氏名をファイルにも置かない
 - 人数と顔ぶれを突き合わせ、結果を院長DMへ1通（揃っていても1行・ずれていれば誰がずれているか）
 
 このリポジトリは公開＝実行ログを誰でも読めるので、氏名はログに出さない（人数だけ）。
@@ -31,6 +35,7 @@ DRIVE_TOKEN_JSON = os.environ["DRIVE_TOKEN_JSON"]
 DISPATCH_PAT = os.environ.get("DISPATCH_PAT", "")
 NO_NOTIFY = os.getenv("NO_NOTIFY", "").strip() in ("1", "true", "True")
 ENC_PUBKEY = os.getenv("ENC_PUBKEY", "").strip()
+RULES = json.loads(os.getenv("CYBOZU_MEMBER_RULES", "").strip() or "{}")
 
 STAFF_TABS = ["正社員名簿", "パート"]
 LW_BOT_ID = "12266491"
@@ -81,27 +86,34 @@ def build_message(users, staff):
     active = [u for u in users if u.get("valid")]
     stopped = [u for u in users if not u.get("valid")]
     cy = {norm(u.get("name")): (u.get("name") or "").strip() for u in active}
-    st = {norm(n): n for n in staff}
-    only_cy = [cy[k] for k in cy if k not in st]
-    only_st = [st[k] for k in st if k not in cy]
+    no_account = {norm(n) for n in RULES.get("no_account", [])}
+    extra = {norm(n): n for n in RULES.get("extra_users", [])}
 
-    ok = len(active) == len(staff) and not only_cy and not only_st
+    # あるべき利用者 = 名簿（アカウントを作らない人は除く。作られていれば数える）＋ 名簿の外の利用者
+    expected = {norm(n): n for n in staff if norm(n) not in no_account or norm(n) in cy}
+    skipped = [n for n in staff if norm(n) in no_account and norm(n) not in cy]
+    expected.update(extra)
+    only_cy = [cy[k] for k in cy if k not in expected]
+    only_ex = [expected[k] for k in expected if k not in cy]
+
+    ok = len(active) == len(expected) and not only_cy and not only_ex
     head = "✅" if ok else "🔴"
-    lines = [f"{head}【サイボウズ利用人数チェック】サイボウズ {len(active)}名／スタッフ名簿 {len(staff)}名"]
+    lines = [f"{head}【サイボウズ利用人数チェック】サイボウズ {len(active)}名／あるべき人数 {len(expected)}名",
+             f"（あるべき人数＝スタッフ名簿 {len(staff)}名 − サイボウズを使わない {len(skipped)}名 ＋ 名簿の外の利用者 {len(extra)}名）"]
     if ok:
         lines.append("人数・顔ぶれとも揃っています")
     else:
         lines.append("揃っていません")
         if only_cy:
-            lines.append("・サイボウズにいて名簿にいない（卒業済みのアカウントが残っている可能性）:")
+            lines.append("・サイボウズにいるが、名簿にいない（卒業後もアカウントが残っている可能性）:")
             lines += [f"　{n}" for n in only_cy]
-        if only_st:
-            lines.append("・名簿にいてサイボウズにいない（アカウント未作成・名前の表記違いの可能性）:")
-            lines += [f"　{n}" for n in only_st]
+        if only_ex:
+            lines.append("・名簿にいるが、サイボウズにいない（アカウント未作成・改姓など名前の表記違いの可能性）:")
+            lines += [f"　{n}" for n in only_ex]
     if stopped:
         lines.append(f"（参考）サイボウズで「停止中」のユーザー {len(stopped)}名は数えていません")
-    lines.append("名簿＝スタッフ名簿スプシ（正社員名簿・パート）")
-    return ok, len(active), len(staff), "\n".join(lines)
+    return ok, len(active), len(expected), "
+".join(lines)
 
 
 def encrypt_and_print(text):
@@ -143,7 +155,7 @@ def main():
         ok, message = False, f"🔴【サイボウズ利用人数チェック】確認できませんでした: {e}"
         log(message)
     else:
-        log(f"サイボウズ {n_cy}名／名簿 {n_st}名 → {'一致' if ok else '不一致'}")
+        log(f"サイボウズ {n_cy}名／あるべき人数 {n_st}名 → {'一致' if ok else '不一致'}")
 
     if ENC_PUBKEY:
         encrypt_and_print(message)
