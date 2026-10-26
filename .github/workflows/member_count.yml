@@ -1,0 +1,59 @@
+# ==========================================================
+# 【何をする】サイボウズの利用人数（使用中ユーザー）が、スタッフ名簿の人数・顔ぶれと揃っているか確かめ、院長DMへ結果を1通
+#            （揃っていれば1行、ずれていれば誰がずれているか）（2026-10-26〜）
+# 【いつ動く】毎月末日 9:00｜サイボウズBot（bot.yml・30分ごと）の時計が起動。手動でも起動できる
+# 【同梱】なし（公開リポジトリ＝Actions無料のため独立。試運転で入力を渡せるよう別ワークフローにした）
+# 【なぜここにあるか】サイボウズの認証情報はこのリポジトリのSecretsにしかないため。公開リポジトリなのでログに氏名を出さない
+# ==========================================================
+name: サイボウズ 利用人数チェック（毎月末）
+
+on:
+  workflow_dispatch:
+    inputs:
+      no_notify:
+        description: '院長DMを送らない（試運転用）'
+        type: boolean
+        default: false
+      enc_pubkey:
+        description: '試運転用：結果を暗号化してログに出すための公開鍵（PEMをbase64にしたもの）。入れると院長DMは送らない'
+        required: false
+        default: ''
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install requests google-auth cryptography
+
+      - name: 利用人数を突き合わせる
+        env:
+          CYBOZU_URL: ${{ secrets.CYBOZU_URL }}
+          CYBOZU_LOGIN_ID: ${{ secrets.CYBOZU_LOGIN_ID }}
+          CYBOZU_PASSWORD: ${{ secrets.CYBOZU_PASSWORD }}
+          DRIVE_TOKEN_JSON: ${{ secrets.DRIVE_TOKEN_JSON }}
+          STAFF_MEIBO_SHEET_ID: ${{ secrets.STAFF_MEIBO_SHEET_ID }}
+          DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
+          NO_NOTIFY: ${{ inputs.no_notify }}
+          ENC_PUBKEY: ${{ inputs.enc_pubkey }}
+        run: python member_count_check.py
+
+      - name: 失敗を通知
+        if: failure() && inputs.no_notify != true && inputs.enc_pubkey == ''
+        env:
+          DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
+        run: |
+          curl -sf -X POST -H "Authorization: Bearer $DISPATCH_PAT" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/shin3578-oss/apotool-automation/actions/workflows/lw_notify.yml/dispatches" \
+            -d '{"ref":"main","inputs":{"message":"🔴 サイボウズ利用人数チェック（cybozu-bot member_count.yml）が失敗しました。Actionsのログを確認してください","bot_id":"12789558"}}'
