@@ -75,7 +75,7 @@ def cybozu_users():
 def contract_counts():
     """共通管理の契約状況から（上限, 利用中）を読む。ログインは main.py の login を使う"""
     from main import login
-    host = re.sub(r"https?://([^/]+).*", r"", CYBOZU_URL)
+    host = re.sub(r"https?://([^/]+).*", r"\1", CYBOZU_URL)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
