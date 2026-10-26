@@ -1,5 +1,5 @@
 # ==========================================================
-# 【何をする】サイボウズの利用人数（使用中ユーザー）が、スタッフ名簿の人数・顔ぶれと揃っているか確かめ、院長DMへ結果を1通
+# 【何をする】サイボウズの契約人数（契約状況のユーザー数の上限）と利用人数が揃っているか、利用者がスタッフ名簿の人数・顔ぶれと揃っているか確かめ、院長DMへ結果を1通
 #            （揃っていれば1行、ずれていれば誰がずれているか）（2026-10-26〜）
 # 【いつ動く】毎月末日 9:00｜サイボウズBot（bot.yml・30分ごと）の時計が起動。手動でも起動できる
 # 【同梱】なし（公開リポジトリ＝Actions無料のため独立。試運転で入力を渡せるよう別ワークフローにした）
@@ -35,7 +35,15 @@ jobs:
           python-version: '3.11'
 
       - name: 依存パッケージをインストール
-        run: pip install requests google-auth cryptography
+        run: pip install -r requirements.txt cryptography
+
+      # 契約状況（ライセンスの上限）はAPIが無く画面から読むため、ブラウザが要る
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-chromium-${{ runner.os }}-v1
+      - name: Playwright ブラウザをインストール
+        run: playwright install chromium
 
       - name: 利用人数を突き合わせる
         env:
@@ -48,6 +56,7 @@ jobs:
           NO_NOTIFY: ${{ inputs.no_notify }}
           ENC_PUBKEY: ${{ inputs.enc_pubkey }}
           CYBOZU_MEMBER_RULES: ${{ secrets.CYBOZU_MEMBER_RULES }}
+          ANTHROPIC_API_KEY: unused  # ログイン処理を main.py から借りる。main.py が読み込み時に要求するだけでAIは使わない
         run: python member_count_check.py
 
       - name: 失敗を通知
