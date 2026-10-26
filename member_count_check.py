@@ -112,8 +112,7 @@ def build_message(users, staff):
             lines += [f"　{n}" for n in only_ex]
     if stopped:
         lines.append(f"（参考）サイボウズで「停止中」のユーザー {len(stopped)}名は数えていません")
-    return ok, len(active), len(expected), "
-".join(lines)
+    return ok, len(active), len(expected), "\n".join(lines)
 
 
 def encrypt_and_print(text):
