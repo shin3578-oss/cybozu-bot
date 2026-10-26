@@ -1,0 +1,25 @@
+# 【何をする】調査用（一時）：サイボウズ共通管理「契約状況」画面のURLと数字の出どころを調べる。読むだけ・通知なし
+# 【いつ動く】手動のみ
+name: 調査用 サイボウズ契約状況の画面
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with: { path: ~/.cache/ms-playwright, key: ms-playwright-chromium-${{ runner.os }}-v1 }
+      - run: playwright install chromium
+      - env:
+          CYBOZU_URL: ${{ secrets.CYBOZU_URL }}
+          CYBOZU_LOGIN_ID: ${{ secrets.CYBOZU_LOGIN_ID }}
+          CYBOZU_PASSWORD: ${{ secrets.CYBOZU_PASSWORD }}
+          ANTHROPIC_API_KEY: unused
+        run: python probe_contract.py
