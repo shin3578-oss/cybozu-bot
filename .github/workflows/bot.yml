@@ -1,6 +1,6 @@
 # ==========================================================
 # 【何をする】サイボウズの日報・週報をAI添削して自動承認
-#            ＋4つ（患者トラブル・ミス・不調・院長への相談）に当たる日報だけ院長DMへ知らせる（2026-10-05〜）（＋勤怠・給与・CSV突合・練習台帳ランキング・空き時間タスク設定率の月次起動役
+#            ＋4つ（患者トラブル・ミス・不調・院長への相談）に当たる日報だけ院長DMへ知らせる（2026-10-05〜）（＋勤怠・給与・CSV突合・練習台帳ランキング・空き時間タスク設定率・サイボウズ利用人数チェック（毎月末日9:00）の月次起動役
 #            ＋ジョブメドレー応募者ラリーの承認見張り＝院長がOKを入れたら送信を起こす
 #            ＋GitHub Actions 無料枠の見張り＝毎日9:00に非公開リポジトリの消費を測る）
 # 【いつ動く】30分ごと｜Cron-job.org「サイボウズBot」ジョブが起動
@@ -9,12 +9,18 @@ name: サイボウズ 日報・設備使用許可書 自動承認
 
 on:
   workflow_dispatch:  # Cron-job.org から呼び出す（30分ごと）
+    inputs:
+      test_member_count:
+        description: '試運転：サイボウズ利用人数チェックを、院長DMなしで今すぐ起動する'
+        type: boolean
+        default: false
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: write  # 同じリポジトリの member_count.yml を起こすため（GITHUB_TOKEN）
 
     steps:
       # 30分ごとに毎日動くこのワークフローを「時計」として使い、
@@ -108,6 +114,28 @@ jobs:
               dispatch kintai-automation task_settei.yml
             fi
           fi
+
+      # サイボウズ利用人数チェック（スタッフ名簿と人数・顔ぶれを突き合わせて院長DMへ）:
+      # 毎月末日 9:00 JST（2026-10-26 院長指示）。明日が1日なら今日が末日。
+      # 上の月次起動とは別ステップ＋continue-on-error＝起動に失敗してもBot本体を止めない。
+      # 同じリポジトリなので DISPATCH_PAT ではなく GITHUB_TOKEN（actions: write）で起こす
+      - name: サイボウズ利用人数チェックの起動判定（毎月末日9:00の回のみ）
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HOUR=$(TZ=Asia/Tokyo date +%H)
+          MIN=$(TZ=Asia/Tokyo date +%M)
+          TOMORROW=$(TZ=Asia/Tokyo date -d tomorrow +%d)
+          BODY='{"ref":"main"}'
+          if [ "${{ inputs.test_member_count }}" = "true" ]; then
+            echo "試運転：院長DMなしで起動"
+            BODY='{"ref":"main","inputs":{"no_notify":true}}'
+          elif [ "$HOUR" != "09" ] || [ $((10#$MIN)) -ge 30 ] || [ "$TOMORROW" != "01" ]; then
+            echo "末日9:00の回ではない（JST ${HOUR}:${MIN}・明日は${TOMORROW}日）→ スキップ"
+            exit 0
+          fi
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/member_count.yml/dispatches"             -d "$BODY" && echo "→ member_count.yml 起動OK"
 
       - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
