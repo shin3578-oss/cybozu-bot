@@ -125,22 +125,23 @@ def official_minutes(now):
     tok = os.environ.get("BILLING_PAT", "").strip()
     if not tok:
         return None
-    for path in (f"usage/summary?year={now.year}&month={now.month}&product=actions",
-                 f"usage?year={now.year}&month={now.month}"):
-        req = urllib.request.Request(
-            f"https://api.github.com/users/{OWNER}/settings/billing/{path}",
-            headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json",
-                     "X-GitHub-Api-Version": "2022-11-28"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as r:
-                items = json.loads(r.read()).get("usageItems", [])
-        except Exception as e:
-            print(f"正式な使用量の取得に失敗（{path.split('?')[0]}）: {e}")
-            continue
-        return round(sum(float(i.get("grossQuantity", i.get("quantity", 0)) or 0) for i in items
-                         if str(i.get("product", "")).lower() == "actions"
-                         and "minute" in str(i.get("unitType", "")).lower()))
-    return -1
+    # 集計（usage/summary）は公開リポジトリ（無料）の分まで含む（11/3 実測：全体316分・うち非公開85分）。
+    # 明細（usage）をリポジトリ名で非公開だけに絞る。
+    req = urllib.request.Request(
+        f"https://api.github.com/users/{OWNER}/settings/billing/usage?year={now.year}&month={now.month}",
+        headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            items = json.loads(r.read()).get("usageItems", [])
+        priv = {x.split("/")[1] for x in private_repos()}
+    except Exception as e:
+        print(f"正式な使用量の取得に失敗: {e}")
+        return -1
+    return round(sum(float(i.get("quantity", 0) or 0) for i in items
+                     if str(i.get("product", "")).lower() == "actions"
+                     and "minute" in str(i.get("unitType", "")).lower()
+                     and i.get("repositoryName") in priv))
 
 
 def notify(inputs):
