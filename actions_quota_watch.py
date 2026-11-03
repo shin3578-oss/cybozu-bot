@@ -96,6 +96,10 @@ def used_minutes(period):
                        f"?created={period}&per_page=100&page={page}").get("workflow_runs", [])
             for run in runs:
                 for j in api(f"https://api.github.com/repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", []):
+                    # 院長PCの実行係（self-hosted）のジョブは無料枠を使わないので数えない。
+                    # 数えていたため 2026-11-03 に「月末2,650分」と誤警告した（実消費は約76分）。
+                    if "self-hosted" in (j.get("labels") or []):
+                        continue
                     st, ce = t(j.get("started_at")), t(j.get("completed_at"))
                     if not st or not ce:
                         continue
