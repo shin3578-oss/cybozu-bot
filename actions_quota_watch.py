@@ -39,6 +39,7 @@ FREE_LIMIT_MIN = 2000
 WARN_MIN = 1600            # 80%
 NOTIFY_REPO = "shin3578-oss/deadline-alert"   # LINEワークス送信を頼む公開リポジトリ
 NOTIFY_WORKFLOW = "quota_alert.yml"
+OWNER = "shin3578-oss"     # 正式な使用量を読むアカウント
 MAX_CALLS = 900            # APIの叩きすぎ防止（1回の見張りで使う上限）
 
 TOKEN = os.environ.get("DISPATCH_PAT") or os.environ.get("GITHUB_PAT") or ""
@@ -115,6 +116,33 @@ def used_minutes(period):
     return total, detail
 
 
+def official_minutes(now):
+    """GitHub の正式な当月の Actions 使用量（分）。鍵（BILLING_PAT）が無ければ None、読めなければ -1。
+
+    2026-11-03 追加。自前の数え方は前提が崩れても自分では気づけない（院長PCへ移した
+    無料のジョブまで数えて誤警告した）。正式な数字と毎日見比べて、ずれたら知らせる。
+    """
+    tok = os.environ.get("BILLING_PAT", "").strip()
+    if not tok:
+        return None
+    for path in (f"usage/summary?year={now.year}&month={now.month}&product=actions",
+                 f"usage?year={now.year}&month={now.month}"):
+        req = urllib.request.Request(
+            f"https://api.github.com/users/{OWNER}/settings/billing/{path}",
+            headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                items = json.loads(r.read()).get("usageItems", [])
+        except Exception as e:
+            print(f"正式な使用量の取得に失敗（{path.split('?')[0]}）: {e}")
+            continue
+        return round(sum(float(i.get("grossQuantity", i.get("quantity", 0)) or 0) for i in items
+                         if str(i.get("product", "")).lower() == "actions"
+                         and "minute" in str(i.get("unitType", "")).lower()))
+    return -1
+
+
 def notify(inputs):
     """deadline-alert の quota_alert.yml を起こして院長DMを送ってもらう。
 
@@ -158,6 +186,19 @@ def main():
     print(f"当月 {used}分 / {FREE_LIMIT_MIN}分（残り{remain}／着地見込み {forecast}分）: {top}")
 
     reset = (now.replace(day=1) + timedelta(days=days_in_month)).replace(day=1)
+
+    # GitHub の正式な数字と見比べる（2026-11-03〜）。ずれ＝見張りの前提が崩れた疑い
+    off = official_minutes(now)
+    if off is not None:
+        print(f"GitHubの正式な数字: {off}分（-1＝読めなかった）")
+        if off == -1 or abs(off - used) > max(30, off * 0.2):
+            notify({"level": "mismatch", "used": str(used), "official": str(off),
+                    "reset_month": str(reset.month)})
+        if off >= 0:
+            # 警告の判断は正式な数字で行う（見込みも正式な数字から伸ばす）
+            used = off
+            remain = FREE_LIMIT_MIN - used
+            forecast = round(used / now.day * days_in_month)
 
     if used >= FREE_LIMIT_MIN:
         notify({"level": "blocked", "used": str(used), "forecast": str(forecast),

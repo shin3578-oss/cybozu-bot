@@ -164,6 +164,7 @@ jobs:
         continue-on-error: true
         env:
           DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
+          BILLING_PAT: ${{ secrets.BILLING_PAT }}   # GitHubの正式な使用量を読む鍵（2026-11-03〜・無ければ見比べを省く）
         run: |
           HOUR=$(TZ=Asia/Tokyo date +%H)
           MIN=$(TZ=Asia/Tokyo date +%M)
