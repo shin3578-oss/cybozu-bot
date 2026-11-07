@@ -221,7 +221,17 @@ def login(page):
     page.wait_for_load_state("networkidle")
 
     # ログインフォームを探して入力
-    page.locator('input[name="username"], input[name="userid"], input[type="text"]').first.fill(LOGIN_ID)
+    try:
+        page.locator('input[name="username"], input[name="userid"], input[type="text"]').first.fill(LOGIN_ID)
+    except Exception:
+        # 入力欄が出ないとき、メンテ画面か障害かをログで見分けるため画面の題名と冒頭を出す
+        # （公開リポジトリなのでURL・スクショは出さない。ログイン前の画面に個人情報は無い）
+        try:
+            body = " ".join(page.inner_text("body").split())[:300]
+            print(f"ログイン画面で入力欄が見つからない: 題名={page.title()!r} 本文冒頭={body!r}")
+        except Exception as e2:
+            print(f"ログイン画面の中身も読めなかった: {e2}")
+        raise
     page.locator('input[name="password"], input[type="password"]').first.fill(PASSWORD)
     page.locator('button:has-text("ログイン"), input[value="ログイン"]').first.click()
     page.wait_for_load_state("networkidle")
