@@ -240,7 +240,14 @@ def login(page):
 
 
 def go_to_workflow_index(page):
-    page.goto(CYBOZU_URL)
+    # 承認直後は画面の切り替わりが続いていて、移動が中断される(ERR_ABORTED)ことがある（11/8 22:00の失敗）。
+    # 少し待って1回だけやり直す
+    try:
+        page.goto(CYBOZU_URL)
+    except Exception as e:
+        print(f"一覧へ戻る移動が中断されたのでやり直します: {e}")
+        time.sleep(5)
+        page.goto(CYBOZU_URL)
     page.wait_for_load_state("networkidle")
     time.sleep(2)
     wf_link = page.query_selector('a:has-text("ワークフロー")')
@@ -400,8 +407,12 @@ def main():
         except Exception as e:
             print(f"エラー: {e}")
             run_error = e
-            page.screenshot(path="error_screenshot.png")
-            print("エラー時のスクリーンショットを保存しました: error_screenshot.png")
+            # 写真が撮れなくても、承認済み分の知らせと失敗扱いは続ける（11/8 写真の失敗で本来のエラーが隠れた）
+            try:
+                page.screenshot(path="error_screenshot.png")
+                print("エラー時のスクリーンショットを保存しました: error_screenshot.png")
+            except Exception as e2:
+                print(f"スクリーンショットは撮れませんでした: {e2}")
         finally:
             time.sleep(3)
             browser.close()
