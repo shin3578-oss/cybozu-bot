@@ -52,7 +52,12 @@ jobs:
             dispatch kintai-automation kintai_auto.yml
           fi
           # コンサル歩合突合（前月分）: 毎月1日 9:00 JST
-          if [ "$DAY" = "01" ] && [ "$HOUR" = "09" ]; then
+          # ＋4日 9:00（スタッフの修正を反映して突合し直し→歩合速報の再通知）
+          # ＋5日 7:00（確定前の最後の突合し直し。21:00の確定版がこの結果を読む）（院長決定 2026-11-09）
+          if { [ "$DAY" = "01" ] || [ "$DAY" = "04" ]; } && [ "$HOUR" = "09" ]; then
+            dispatch apotool-automation csv_matching.yml
+          fi
+          if [ "$DAY" = "05" ] && [ "$HOUR" = "07" ]; then
             dispatch apotool-automation csv_matching.yml
           fi
           # 給与振込チェック: 毎月10〜14日 9:00 / 13:00 / 18:00 JST
