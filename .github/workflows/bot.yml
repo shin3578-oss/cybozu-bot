@@ -2,7 +2,8 @@
 # 【何をする】サイボウズの日報・週報をAI添削して自動承認
 #            ＋4つ（患者トラブル・ミス・不調・院長への相談）に当たる日報だけ院長DMへ知らせる（2026-10-05〜）（＋勤怠・給与・CSV突合・練習台帳ランキング・空き時間タスク設定率・サイボウズ利用人数チェック（毎月末日9:00）の月次起動役
 #            ＋ジョブメドレー応募者ラリーの承認見張り＝院長がOKを入れたら送信を起こす
-#            ＋GitHub Actions 無料枠の見張り＝毎日9:00に非公開リポジトリの消費を測る）
+#            ＋GitHub Actions 無料枠の見張り＝毎日9:00に非公開リポジトリの消費を測る
+#            ＋お掃除ロボ（101号室）の見張りを毎回起こす＝kds-runner eufy_watch.yml（2026-11-15〜））
 # 【いつ動く】30分ごと｜Cron-job.org「サイボウズBot」ジョブが起動
 # ==========================================================
 name: サイボウズ 日報・設備使用許可書 自動承認
@@ -191,6 +192,18 @@ jobs:
           curl -sf -H "Authorization: Bearer $RUNNER_WATCH_PAT" -H "Accept: application/vnd.github.raw" \
             "https://api.github.com/repos/shin3578-oss/apotool-automation/contents/runner_watch.py" -o "$RUNNER_TEMP/runner_watch.py"
           python "$RUNNER_TEMP/runner_watch.py" --dispatch-notify
+
+      # 101号室のお掃除ロボの見張り（2026-11-15〜）。毎回（:00・:30）kds-runner の eufy_watch.yml を起こすだけ。
+      # 見張りの中身・通知は向こう側。起こせなかったときは向こうの run_watchdog（台帳の起動もれ検知）が拾う。
+      - name: お掃除ロボ見張りを起こす（毎回）
+        if: always()   # 前の月次起動判定が失敗した回も起こす
+        continue-on-error: true
+        env:
+          DISPATCH_PAT: ${{ secrets.DISPATCH_PAT }}
+        run: |
+          curl -sf -X POST -H "Authorization: token $DISPATCH_PAT" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/shin3578-oss/kds-runner/actions/workflows/eufy_watch.yml/dispatches" \
+            -d '{"ref":"main"}' && echo "→ eufy_watch.yml 起動OK"
 
       - name: 依存パッケージをインストール
         run: pip install -r requirements.txt
