@@ -83,6 +83,13 @@ def main():
                     queue.append(h)
             cats.append(url)
         print(f"一覧ページ {len(cats)}件・投稿 {len(views)}件")
+        if not views:  # 画面の作りが想定と違う → 一覧ページの本文とリンクを出して作りを確かめる
+            goto(page, index)
+            dbg = [page.url, page.title(), page.inner_text("body")[:6000], "\n----- リンク -----"]
+            dbg += [f"{l['t'][:50]} | {l['h']}" for l in links_of(page)[:300]]
+            base.encrypt_and_print("bulletin_debug", "\n".join(dbg))
+            browser.close()
+            return
 
         for i, (title, h) in enumerate(views[:MAX_VIEWS], 1):
             out_titles.append(f"{title[:80]} | {h}")
