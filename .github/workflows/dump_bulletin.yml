@@ -8,11 +8,18 @@ name: サイボウズ 掲示板の読み取り（調査用）
 
 on:
   workflow_dispatch:
+    inputs:
+      start:
+        description: "何件目から読むか"
+        default: "0"
+      max_views:
+        description: "何件読むか"
+        default: "900"
 
 jobs:
   dump:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 70
     permissions:
       contents: read
 
@@ -41,4 +48,7 @@ jobs:
           CYBOZU_URL: ${{ secrets.CYBOZU_URL }}
           CYBOZU_LOGIN_ID: ${{ secrets.CYBOZU_LOGIN_ID }}
           CYBOZU_PASSWORD: ${{ secrets.CYBOZU_PASSWORD }}
+          BULLETIN_START: ${{ inputs.start }}
+          BULLETIN_MAX_VIEWS: ${{ inputs.max_views }}
+          BULLETIN_MINUTES: "60"
         run: python dump_bulletin.py

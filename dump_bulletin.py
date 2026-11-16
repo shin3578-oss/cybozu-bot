@@ -30,10 +30,11 @@ ocswu+OqsR+RrW629/TB3B1fvESFdR68qjB1jCWsfzQQHcBMJPzOVZbHil37XPcX
 
 KEYWORDS = os.environ.get(
     "BULLETIN_KEYWORDS",
-    "住民,管理組合,管理会社,理事,苦情,クレーム,医局,505,ビュープラザ,事務所,出入り,警察,騒音,近隣,マンション,エレベーター,オートロック,住人",
+    "住民,管理組合,管理会社,理事,苦情,クレーム,医局,505,ビュープラザ,事務所,出入り,警察,騒音,近隣,マンション,エレベーター,オートロック,住人,似顔絵,指摘,スクラブ,通報,引越",
 ).split(",")
 MAX_VIEWS = int(os.environ.get("BULLETIN_MAX_VIEWS", "900"))
-TIME_BUDGET = 35 * 60
+START = int(os.environ.get("BULLETIN_START", "0"))  # 2回目以降は続きから読む
+TIME_BUDGET = int(os.environ.get("BULLETIN_MINUTES", "35")) * 60
 MAX_CHARS = 8000
 
 
@@ -93,7 +94,7 @@ def main():
             browser.close()
             return
 
-        for i, (title, h) in enumerate(views[:MAX_VIEWS], 1):
+        for i, (title, h) in enumerate(views[START:START + MAX_VIEWS], 1):
             out_titles.append(f"{title[:80]} | {h}")
             if time.time() - t0 > TIME_BUDGET:
                 out_titles.append("（時間切れ：ここから先の本文は未確認）")
