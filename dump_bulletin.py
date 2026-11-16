@@ -54,7 +54,9 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
         base.login(page)
-        ag = re.sub(r"\?.*$", "", page.url)
+        # ログイン後は cybozu.com の共通ポータル → サイボウズ Office（/o/ag.cgi）を直接開く
+        m = re.match(r"(https://[^/]+)", page.url)
+        ag = f"{m[1]}/o/ag.cgi"
         index = f"{ag}?page=BulletinIndex"
         goto(page, index)
         print("掲示板トップ:", page.title())
